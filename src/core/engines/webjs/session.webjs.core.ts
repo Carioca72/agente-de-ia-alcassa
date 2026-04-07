@@ -118,6 +118,7 @@ import {
   WALocation,
   WAMessage,
   WAMessageReaction,
+  WAReactionInfo,
 } from '@waha/structures/responses.dto';
 import { BrowserTraceQuery } from '@waha/structures/server.debug.dto';
 import { MeInfo } from '@waha/structures/sessions.dto';
@@ -788,7 +789,7 @@ export class WhatsappSessionWebJSCore extends WhatsappSession {
     const message = this.recreateMessage(messageId);
     const options = {
       // It's fine to sent just ids instead of Contact object
-      mentions: request.mentions as unknown as string[],
+      mentions: (request.mentions as unknown) as string[],
       linkPreview: request.linkPreview,
     };
     return message.edit(request.text, options);
@@ -1729,19 +1730,23 @@ export class WhatsappSessionWebJSCore extends WhatsappSession {
       filter((evt: any) =>
         this.jids.include(evt?.after?.id?.remote || evt?.before?.id?.remote),
       ),
-      map((event): WAMessageRevokedBody => {
-        const afterMessage = event.after ? this.toWAMessage(event.after) : null;
-        const beforeMessage = event.before
-          ? this.toWAMessage(event.before)
-          : null;
-        // Extract the revoked message ID from the protocolMessageKey.id field
-        const revokedMessageId = afterMessage?._data?.protocolMessageKey?.id;
-        return {
-          after: afterMessage,
-          before: beforeMessage,
-          revokedMessageId: revokedMessageId,
-        };
-      }),
+      map(
+        (event): WAMessageRevokedBody => {
+          const afterMessage = event.after
+            ? this.toWAMessage(event.after)
+            : null;
+          const beforeMessage = event.before
+            ? this.toWAMessage(event.before)
+            : null;
+          // Extract the revoked message ID from the protocolMessageKey.id field
+          const revokedMessageId = afterMessage?._data?.protocolMessageKey?.id;
+          return {
+            after: afterMessage,
+            before: beforeMessage,
+            revokedMessageId: revokedMessageId,
+          };
+        },
+      ),
     );
     this.events2.get(WAHAEvents.MESSAGE_REVOKED).switch(messagesRevoked$);
 
@@ -1762,15 +1767,17 @@ export class WhatsappSessionWebJSCore extends WhatsappSession {
     );
     const messagesEdit$ = messageEdit$.pipe(
       filter((event: any) => this.jids.include(event?.message?.id?.remote)),
-      map((event): WAMessageEditedBody => {
-        const message = this.toWAMessage(event.message);
-        return {
-          ...message,
-          body: event.newBody,
-          editedMessageId: message._data?.id?.id,
-          _data: event,
-        };
-      }),
+      map(
+        (event): WAMessageEditedBody => {
+          const message = this.toWAMessage(event.message);
+          return {
+            ...message,
+            body: event.newBody,
+            editedMessageId: message._data?.id?.id,
+            _data: event,
+          };
+        },
+      ),
     );
     this.events2.get(WAHAEvents.MESSAGE_EDITED).switch(messagesEdit$);
 
@@ -1941,12 +1948,41 @@ export class WhatsappSessionWebJSCore extends WhatsappSession {
   ) {
     // Convert
     const wamessage = this.toWAMessage(message);
+    // Reactions - use getReactions() API if message has reactions
+    if (message.hasReaction) {
+      const reactionLists = await message.getReactions().catch((e) => {
+        this.logger.error(
+          { error: e, msg: message.id._serialized },
+          'Failed to get reactions',
+        );
+        return null;
+      });
+      if (reactionLists) {
+        wamessage.reactions = this.convertReactionLists(reactionLists);
+      }
+    }
     // Media
     if (downloadMedia) {
       const media = await this.downloadMediaSafe(message);
       wamessage.media = media;
     }
     return wamessage;
+  }
+
+  protected convertReactionLists(reactionLists: any[]): WAReactionInfo[] {
+    if (!reactionLists || !Array.isArray(reactionLists)) return [];
+    const reactions: WAReactionInfo[] = [];
+    for (const reactionList of reactionLists) {
+      if (!reactionList.senders) continue;
+      for (const sender of reactionList.senders) {
+        reactions.push({
+          reaction: sender.reaction || reactionList.aggregateEmoji || '',
+          senderId: toCusFormat(sender.senderId),
+          timestamp: sender.timestamp || 0,
+        });
+      }
+    }
+    return reactions;
   }
 
   private toRejectedCallData(peerJid: string, id: string): CallData {
@@ -2182,8 +2218,7 @@ export class WhatsappSessionWebJSCore extends WhatsappSession {
 }
 
 export class WEBJSEngineMediaProcessor
-  implements IMediaEngineProcessor<Message>
-{
+  implements IMediaEngineProcessor<Message> {
   hasMedia(message: Message): boolean {
     if (!message.hasMedia) {
       return false;
