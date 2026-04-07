@@ -278,6 +278,14 @@ export class ChatSummary {
   id: string;
   name: string | null;
   picture: string | null;
+  isGroup?: boolean;
+  isReadOnly?: boolean;
+  timestamp?: number;
+  archived?: boolean;
+  pinned?: boolean;
+  isMuted?: boolean;
+  muteExpiration?: number;
+  unreadCount?: number;
   lastMessage: any;
   _chat: any;
 }

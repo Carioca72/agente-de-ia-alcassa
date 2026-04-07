@@ -1360,10 +1360,19 @@ export class WhatsappSessionNoWebCore extends WhatsappSession {
     };
     const messages = await this.getChatMessages(chat.id, lastMessageQuery, {});
     const message = messages.length > 0 ? messages[0] : null;
+    const chatAny = chat as any;
     return {
       id: id,
       name: name || null,
       picture: picture,
+      isGroup: chat.id?.endsWith?.('@g.us') || false,
+      isReadOnly: chatAny.readOnly || false,
+      timestamp: chatAny.conversationTimestamp || chatAny.t || null,
+      archived: chat.archived,
+      pinned: chatAny.pinned || chatAny.pin || false,
+      isMuted: chatAny.mute !== undefined ? chatAny.mute !== 0 : false,
+      muteExpiration: chatAny.mute || 0,
+      unreadCount: chat.unreadCount,
       lastMessage: message,
       _chat: chat,
     };
