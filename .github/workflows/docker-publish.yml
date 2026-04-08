@@ -1,12 +1,11 @@
-
-name: Docker
+name: Docker-WAHA-Deploy
 
 on:
   push:
-    branches: [ "main", "essencial" ]
+    branches: [ "main", "core", "essencial" ]
     tags: [ 'v*.*.*' ]
   pull_request:
-    branches: [ "main", "essencial" ]
+    branches: [ "main", "core", "essencial" ]
 
 env:
   REGISTRY: ghcr.io
@@ -64,8 +63,19 @@ jobs:
           username: ${{ secrets.USERNAME }}
           password: ${{ secrets.PASSWORD }}
           script: |
+            # Autentica o Docker no servidor
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Puxa a imagem mais recente (tenta essencial, depois main)
             docker pull ghcr.io/${{ github.repository }}:essencial || docker pull ghcr.io/${{ github.repository }}:main
+            
+            # Para e remove o container antigo se ele existir
             docker stop waha || true
             docker rm waha || true
-            docker run -d --name waha --restart always -p 3000:3000 ghcr.io/${{ github.repository }}:main
+            
+            # Roda o novo container
+            docker run -d \
+              --name waha \
+              --restart always \
+              -p 3000:3000 \
+              ghcr.io/${{ github.repository }}:main
