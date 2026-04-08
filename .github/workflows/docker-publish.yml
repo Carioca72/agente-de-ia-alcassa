@@ -97,19 +97,35 @@ jobs:
         # against the sigstore community Fulcio instance.
         run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
 deploy:
-    needs: build # Só roda se o build passar
+    needs: build
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
-    
     steps:
-      - name: Deploy via SSH
+      - name: Executar comandos no servidor Hostinger
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.HOST_DO_SERVIDOR }}
-          username: ${{ secrets.USER_DO_SERVIDOR }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.PASSWORD }}
+          port: 22
           script: |
+            # 1. Instalar Docker se não existir (necessário apenas na primeira vez)
+            if ! [ -x "$(command -v docker)" ]; then
+              curl -fsSL https://get.docker.com -o get-docker.sh
+              sh get-docker.sh
+            fi
+            
+            # 2. Login no registro do GitHub
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # 3. Parar o que estiver rodando e baixar a versão nova
             docker pull ghcr.io/${{ github.repository }}:main
-            docker stop waha-container || true
-            docker rm waha-container || true
-            docker run -d --name waha-container -p 3000:3000 ghcr.io/${{ github.repository }}:main
+            docker stop waha || true
+            docker rm waha || true
+            
+            # 4. Rodar o WAHA (ajuste as portas se necessário)
+            docker run -d \
+              --name waha \
+              --restart always \
+              -p 3000:3000 \
+              -e "WHATSAPP_API_SCHEMA=https" \
+              ghcr.io/${{ github.repository }}:main
