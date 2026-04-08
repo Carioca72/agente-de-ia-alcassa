@@ -96,36 +96,73 @@ jobs:
         # This step uses the identity token to provision an ephemeral certificate
         # against the sigstore community Fulcio instance.
         run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
-deploy:
+name: Docker
+
+on:
+  push:
+    branches: [ "main", "essencial" ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ "main", "essencial" ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
     needs: build
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
     steps:
-      - name: Executar comandos no servidor Hostinger
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           password: ${{ secrets.PASSWORD }}
-          port: 22
           script: |
-            # 1. Instalar Docker se não existir (necessário apenas na primeira vez)
-            if ! [ -x "$(command -v docker)" ]; then
-              curl -fsSL https://get.docker.com -o get-docker.sh
-              sh get-docker.sh
-            fi
-            
-            # 2. Login no registro do GitHub
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            
-            # 3. Parar o que estiver rodando e baixar a versão nova
-            docker pull ghcr.io/${{ github.repository }}:main
+            docker pull ghcr.io/${{ github.repository }}:essencial || docker pull ghcr.io/${{ github.repository }}:main
             docker stop waha || true
             docker rm waha || true
-            
-            # 4. Rodar o WAHA (ajuste as portas se necessário)
-            docker run -d \
-              --name waha \
-              --restart always \
-              -p 3000:3000 \
-              -e "WHATSAPP_API_SCHEMA=https" \
-              ghcr.io/${{ github.repository }}:main
+            docker run -d --name waha --restart always -p 3000:3000 ghcr.io/${{ github.repository }}:main
