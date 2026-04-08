@@ -3,7 +3,6 @@ name: Docker-WAHA-Deploy
 on:
   push:
     branches: [ "main", "core", "essencial" ]
-    tags: [ 'v*.*.*' ]
   pull_request:
     branches: [ "main", "core", "essencial" ]
 
@@ -17,7 +16,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
 
     steps:
       - name: Checkout repository
@@ -27,7 +25,6 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log into registry ${{ env.REGISTRY }}
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -42,14 +39,17 @@ jobs:
 
       - name: Build and push Docker image
         id: build-and-push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # ESTA LINHA ABAIXO É A QUE RESOLVE O ERRO DO YARN:
+          build-args: |
+            NODE_OPTIONS=--max-old-space-size=4096
 
   deploy:
     needs: build
@@ -63,19 +63,8 @@ jobs:
           username: ${{ secrets.USERNAME }}
           password: ${{ secrets.PASSWORD }}
           script: |
-            # Autentica o Docker no servidor
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            
-            # Puxa a imagem mais recente (tenta essencial, depois main)
-            docker pull ghcr.io/${{ github.repository }}:essencial || docker pull ghcr.io/${{ github.repository }}:main
-            
-            # Para e remove o container antigo se ele existir
+            docker pull ghcr.io/${{ github.repository }}:main || docker pull ghcr.io/${{ github.repository }}:core
             docker stop waha || true
             docker rm waha || true
-            
-            # Roda o novo container
-            docker run -d \
-              --name waha \
-              --restart always \
-              -p 3000:3000 \
-              ghcr.io/${{ github.repository }}:main
+            docker run -d --name waha --restart always -p 3000:3000 ghcr.io/${{ github.repository }}:main
