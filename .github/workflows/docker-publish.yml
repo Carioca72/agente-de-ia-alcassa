@@ -8,6 +8,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  # O segredo está nesta linha abaixo: forçamos o nome para minúsculo
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
@@ -31,20 +32,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
       - name: Build and push Docker image
         id: build-and-push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          # Forçamos a tag para minúsculo aqui também
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/agente-de-ia-alcassa:main
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
@@ -63,15 +58,16 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: 22
           script: |
-            # Login no registro
+            # Convertemos o nome do repositório para minúsculo no servidor
+            REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+            
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # Puxa a imagem (tentando as tags possíveis)
-            docker pull ghcr.io/${{ github.repository }}:main || docker pull ghcr.io/${{ github.repository }}:core
+            # Puxamos a imagem usando o nome em minúsculo
+            docker pull ghcr.io/$REPO_LOWER:main
             
-            # Remove container antigo
             docker stop waha || true
             docker rm waha || true
             
-            # Sobe o novo
-            docker run -d --name waha --restart always -p 3000:3000 ghcr.io/${{ github.repository }}:main
+            # Rodamos o container com o nome corrigido
+            docker run -d --name waha --restart always -p 3000:3000 ghcr.io/$REPO_LOWER:main
