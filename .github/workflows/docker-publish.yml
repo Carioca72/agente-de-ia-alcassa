@@ -47,25 +47,31 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # ESTA LINHA ABAIXO É A QUE RESOLVE O ERRO DO YARN:
           build-args: |
             NODE_OPTIONS=--max-old-space-size=4096
 
-  - name: Deploy via SSH
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_KEY }} # Usando a chave que você salvou no Secret
+          key: ${{ secrets.SSH_KEY }}
           port: 22
           script: |
-            # Login no Docker Registry do GitHub
+            # Login no registro
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # Puxa a imagem nova (garanta que o nome da branch/tag está correto)
-            docker pull ghcr.io/${{ github.repository }}:main
+            # Puxa a imagem (tentando as tags possíveis)
+            docker pull ghcr.io/${{ github.repository }}:main || docker pull ghcr.io/${{ github.repository }}:core
             
-            # Reinicia o container
+            # Remove container antigo
             docker stop waha || true
             docker rm waha || true
+            
+            # Sobe o novo
             docker run -d --name waha --restart always -p 3000:3000 ghcr.io/${{ github.repository }}:main
