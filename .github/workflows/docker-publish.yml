@@ -8,6 +8,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  # AQUI ESTÁ A SOLUÇÃO FÁCIL: Escreva seu usuário/repositório tudo em MINÚSCULO manualmente
+  IMAGE_NAME: carioca72/agente-de-ia-alcassa
 
 jobs:
   build:
@@ -19,11 +21,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      # ESTE PASSO AQUI É A CHAVE: Ele cria uma variável 'repo' toda em minúsculo
-      - name: Lowercase Repo Name
-        run: |
-          echo "REPO_LOWER=${GITHUB_REPOSITORY@L" >> "${GITHUB_ENV}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -41,8 +38,7 @@ jobs:
         with:
           context: .
           push: true
-          # Usamos a variável REPO_LOWER que criamos no passo anterior
-          tags: ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:main
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
@@ -53,10 +49,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     steps:
-      - name: Lowercase Repo Name for Deploy
-        run: |
-          echo "REPO_LOWER=${GITHUB_REPOSITORY@L" >> "${GITHUB_ENV}"
-
       - name: Deploy via SSH
         uses: appleboy/ssh-action@master
         with:
@@ -65,14 +57,15 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: 22
           script: |
-            # No servidor, também usamos o nome em minúsculo
-            REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-            
+            # Login no Docker Registry do GitHub
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            docker pull ghcr.io/$REPO_LOWER:main
+            # Puxa a imagem usando o nome fixo em minúsculo
+            docker pull ghcr.io/${{ env.IMAGE_NAME }}:main
             
+            # Reinicia o container
             docker stop waha || true
             docker rm waha || true
             
-            docker run -d --name waha --restart always -p 3000:3000 ghcr.io/$REPO_LOWER:main
+            # Roda o novo container
+            docker run -d --name waha --restart always -p 3000:3000 ghcr.io/${{ env.IMAGE_NAME }}:main
